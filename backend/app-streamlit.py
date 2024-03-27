@@ -29,26 +29,29 @@ def initialize_pinecone_client(api_key: str) -> Pinecone:
 
 
 def get_response(user_query: str) -> Dict[str, Optional[str]]:
+    try:
+        full_query = PROMPT_TEMPLATE + user_query
+        pc_client = initialize_pinecone_client(api_key=st.secrets["pinecone_api_key"])
 
-    full_query = PROMPT_TEMPLATE + user_query
-    pc_client = initialize_pinecone_client(api_key=st.secrets["pinecone_api_key"])
+        embedding_model = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=st.secrets["openai_api_key"])
+        index = pc_client.Index(INDEX_NAME)
 
-    embedding_model = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=st.secrets["openai_api_key"])
-    index = pc_client.Index(INDEX_NAME)
+        # Wait for index connection
+        time.sleep(1)
 
-    # Wait for index connection
-    time.sleep(1)
+        index.describe_index_stats()
 
-    index.describe_index_stats()
+        vectorstore = LangChainPinecone(index=index, embedding=embedding_model, text_key="context")
+        llm = OpenAI(temperature=TEMPERATURE, openai_api_key=st.secrets["openai_api_key"])
+        retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": NUM_RETRIEVED_DOCS})
 
-    vectorstore = LangChainPinecone(index=index, embedding=embedding_model, text_key="context")
-    llm = OpenAI(temperature=TEMPERATURE, openai_api_key=st.secrets["openai_api_key"])
-    retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": NUM_RETRIEVED_DOCS})
+        qa_chain = RetrievalQAWithSourcesChain.from_chain_type(llm=llm, retriever=retriever)
+        response = qa_chain(full_query)
 
-    qa_chain = RetrievalQAWithSourcesChain.from_chain_type(llm=llm, retriever=retriever)
-    response = qa_chain(full_query)
-
-    return response
+        return response
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return {"answer": "An error occurred while processing your request. Please try again later.", "sources": None}
 
 
 st.title("AI Law")
